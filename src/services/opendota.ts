@@ -95,6 +95,7 @@ export class OpenDotaClient {
   private readonly sleep: (ms: number) => Promise<void>;
   private queue: Promise<unknown> = Promise.resolve();
   private lastRequestAt = 0;
+  private rateLimitHits = 0;
 
   constructor(options: OpenDotaClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? "https://api.opendota.com/api";
@@ -119,6 +120,12 @@ export class OpenDotaClient {
 
   getHeroes(): Promise<Hero[]> {
     return this.request<Hero[]>("/heroes");
+  }
+
+  consumeRateLimitHits(): number {
+    const hits = this.rateLimitHits;
+    this.rateLimitHits = 0;
+    return hits;
   }
 
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -151,6 +158,9 @@ export class OpenDotaClient {
         }
 
         if (response.status === 429 || response.status >= 500) {
+          if (response.status === 429) {
+            this.rateLimitHits += 1;
+          }
           if (attempt >= this.maxRetries) {
             throw new OpenDotaError(`OpenDota request failed: ${response.status}`, response.status);
           }

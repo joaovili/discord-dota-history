@@ -25,6 +25,7 @@ export interface PollResult {
   candidates: number;
   posted: number;
   skipped: number;
+  rateLimitHits: number;
   errors: string[];
 }
 
@@ -51,7 +52,14 @@ export async function pollGuild(
   deps: PollDeps,
   options: PollOptions = {},
 ): Promise<PollResult> {
-  const result: PollResult = { guildId, candidates: 0, posted: 0, skipped: 0, errors: [] };
+  const result: PollResult = {
+    guildId,
+    candidates: 0,
+    posted: 0,
+    skipped: 0,
+    rateLimitHits: 0,
+    errors: [],
+  };
 
   const config = getGuildConfig(guildId);
   if (!config?.channelId) {
@@ -119,6 +127,7 @@ export async function pollGuild(
     }
   }
 
+  result.rateLimitHits = deps.opendota.consumeRateLimitHits?.() ?? 0;
   markMatchesSeen(guildId, matchIds);
   setGuildLastRun(guildId, Date.now());
 

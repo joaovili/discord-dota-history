@@ -62,8 +62,19 @@ export function startScheduler(deps: PollDeps, options: SchedulerOptions = {}): 
                 .map((message) => `• ${message}`)
                 .join("\n")}`,
             );
+          } else if (result.rateLimitHits > 0) {
+            await notifyGuild(
+              deps.client,
+              guild.guildId,
+              `⚠️ A OpenDota atingiu o limite de requisições (${result.rateLimitHits}x). Algumas buscas podem atrasar; tento de novo no próximo ciclo.`,
+            );
           } else {
             clearGuildError(guild.guildId);
+          }
+          if (result.rateLimitHits > 0) {
+            console.warn(
+              `[scheduler] guild ${guild.guildId}: OpenDota 429 x${result.rateLimitHits}`,
+            );
           }
           if (result.posted > 0) {
             console.log(

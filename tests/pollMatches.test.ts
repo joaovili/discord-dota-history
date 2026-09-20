@@ -98,8 +98,10 @@ function fakeOpenDota(
   matches: PlayerMatch[],
   details: Record<number, MatchDetail>,
   failFor: number[] = [],
+  rateLimitHits = 0,
 ): OpenDotaClient {
   return {
+    consumeRateLimitHits: () => rateLimitHits,
     getHeroes: async () =>
       HEROES.map((hero) => ({
         id: hero.id,
@@ -222,6 +224,30 @@ describe("pollGuild", () => {
 
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toContain("boom");
+    expect(result.posted).toBe(1);
+  });
+
+  it("reports OpenDota rate limit hits", async () => {
+    setupGuild();
+    addPlayer({
+      guildId: "g1",
+      accountId: 39734272,
+      steamId64: "76561198000000000",
+      discordUserId: null,
+      displayName: "A",
+      addedAt: 0,
+    });
+
+    const details = { 1001: matchDetail(1001, 1000) };
+    const opendota = fakeOpenDota([playerMatch(1001, 1000)], details, [], 3);
+
+    const result = await pollGuild("g1", {
+      client: fakeClient({ sent: [] }),
+      opendota,
+      heroes: createHeroes(),
+    });
+
+    expect(result.rateLimitHits).toBe(3);
     expect(result.posted).toBe(1);
   });
 

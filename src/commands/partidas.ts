@@ -60,6 +60,11 @@ export const partidasCommand: Command = {
       if (result.skipped > 0) {
         lines.push(`${result.skipped} partida(s) sem dados disponíveis foram ignoradas.`);
       }
+      if (result.rateLimitHits > 0) {
+        lines.push(
+          `⚠️ Limite da OpenDota atingido (${result.rateLimitHits}x); algumas buscas podem ter falhado.`,
+        );
+      }
       if (result.errors.length > 0) {
         lines.push(`Avisos:\n${result.errors.map((e) => `• ${e}`).join("\n")}`);
       }
