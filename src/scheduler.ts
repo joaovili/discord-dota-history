@@ -1,0 +1,93 @@
+import type { Client } from "discord.js";
+import {
+  clearGuildError,
+  getGuildConfig,
+  listEnabledGuilds,
+  recordGuildError,
+} from "./db/guilds.js";
+import { type PollDeps, pollGuild } from "./jobs/pollMatches.js";
+
+const DEFAULT_TICK_MS = 60_000;
+const ERROR_COOLDOWN_MS = 60 * 60 * 1000;
+
+export interface SchedulerOptions {
+  tickMs?: number;
+  onError?: (guildId: string, error: unknown) => void;
+}
+
+async function notifyGuild(client: Client, guildId: string, content: string): Promise<void> {
+  const config = getGuildConfig(guildId);
+  if (!config?.channelId) {
+    return;
+  }
+  if (config.lastErrorAt && Date.now() - config.lastErrorAt < ERROR_COOLDOWN_MS) {
+    return;
+  }
+  const channel = await client.channels.fetch(config.channelId).catch(() => null);
+  if (!channel || !channel.isTextBased() || !channel.isSendable()) {
+    return;
+  }
+  try {
+    await channel.send(content);
+    recordGuildError(guildId);
+  } catch {
+    // swallow: notification is best-effort
+  }
+}
+
+export function startScheduler(deps: PollDeps, options: SchedulerOptions = {}): NodeJS.Timeout {
+  const tickMs = options.tickMs ?? DEFAULT_TICK_MS;
+  let running = false;
+
+  const tick = async (): Promise<void> => {
+    if (running) {
+      return;
+    }
+    running = true;
+    try {
+      const now = Date.now();
+      const due = listEnabledGuilds().filter(
+        (guild) =>
+          guild.lastRunAt === null || now - guild.lastRunAt >= guild.intervalMinutes * 60_000,
+      );
+
+      for (const guild of due) {
+        try {
+          const result = await pollGuild(guild.guildId, deps);
+          if (result.errors.length > 0) {
+            await notifyGuild(
+              deps.client,
+              guild.guildId,
+              `⚠️ Não consegui buscar algumas partidas:\n${result.errors
+                .map((message) => `• ${message}`)
+                .join("\n")}`,
+            );
+          } else {
+            clearGuildError(guild.guildId);
+          }
+          if (result.posted > 0) {
+            console.log(
+              `[scheduler] guild ${guild.guildId}: ${result.posted} partida(s) postada(s)`,
+            );
+          }
+        } catch (error) {
+          options.onError?.(guild.guildId, error);
+          console.error(`[scheduler] guild ${guild.guildId} falhou:`, error);
+          await notifyGuild(
+            deps.client,
+            guild.guildId,
+            "⚠️ Falha ao atualizar o histórico de partidas. Vou tentar de novo no próximo ciclo.",
+          );
+        }
+      }
+    } finally {
+      running = false;
+    }
+  };
+
+  const timer = setInterval(() => {
+    void tick();
+  }, tickMs);
+  timer.unref();
+  return timer;
+}

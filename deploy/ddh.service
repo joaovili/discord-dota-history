@@ -1,0 +1,22 @@
+[Unit]
+Description=DDH (Discord Dota History)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ddh-bot
+Group=ddh-bot
+WorkingDirectory=/opt/ddh
+EnvironmentFile=/opt/ddh/.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/ddh/data
+
+[Install]
+WantedBy=multi-user.target
