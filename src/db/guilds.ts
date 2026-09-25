@@ -44,6 +44,12 @@ export function setGuildLastRun(guildId: string, lastRunAt: number): void {
     .run(lastRunAt, lastRunAt, guildId);
 }
 
+export function setGuildLastSuccess(guildId: string, lastSuccessAt: number): void {
+  getDb()
+    .prepare("UPDATE guild_config SET last_success_at = ?, updated_at = ? WHERE guild_id = ?")
+    .run(lastSuccessAt, lastSuccessAt, guildId);
+}
+
 export function recordGuildError(guildId: string, at = Date.now()): void {
   getDb().prepare("UPDATE guild_config SET last_error_at = ? WHERE guild_id = ?").run(at, guildId);
 }

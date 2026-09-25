@@ -99,6 +99,7 @@ function fakeOpenDota(
   details: Record<number, MatchDetail>,
   failFor: number[] = [],
   rateLimitHits = 0,
+  matchLimits?: number[],
 ): OpenDotaClient {
   return {
     consumeRateLimitHits: () => rateLimitHits,
@@ -110,7 +111,8 @@ function fakeOpenDota(
         name: hero.name,
         icon: "",
       })),
-    getPlayerMatches: async (accountId: number) => {
+    getPlayerMatches: async (accountId: number, limit?: number) => {
+      matchLimits?.push(limit ?? 20);
       if (failFor.includes(accountId)) {
         throw new Error("boom");
       }
@@ -118,6 +120,18 @@ function fakeOpenDota(
     },
     getMatch: async (matchId: number) => details[matchId] ?? null,
   } as unknown as OpenDotaClient;
+}
+
+function addSinglePlayer(): void {
+  setupGuild();
+  addPlayer({
+    guildId: "g1",
+    accountId: 39734272,
+    steamId64: "76561198000000000",
+    discordUserId: null,
+    displayName: "A",
+    addedAt: 0,
+  });
 }
 
 function setupGuild(): void {
@@ -249,6 +263,78 @@ describe("pollGuild", () => {
 
     expect(result.rateLimitHits).toBe(3);
     expect(result.posted).toBe(1);
+  });
+
+  it("keeps lastSuccessAt after an error so the next run retries the backlog", async () => {
+    addSinglePlayer();
+    const details = { 1001: matchDetail(1001, 1000) };
+
+    const first = await pollGuild("g1", {
+      client: fakeClient({ sent: [] }),
+      opendota: fakeOpenDota([playerMatch(1001, 1000)], details),
+      heroes: createHeroes(),
+    });
+    expect(first.errors).toHaveLength(0);
+    const successAt = getGuildConfig("g1")?.lastSuccessAt;
+    expect(successAt).toBeTypeOf("number");
+
+    const failing = await pollGuild("g1", {
+      client: fakeClient({ sent: [] }),
+      opendota: fakeOpenDota([], {}, [39734272]),
+      heroes: createHeroes(),
+    });
+
+    expect(failing.errors).toHaveLength(1);
+    expect(getGuildConfig("g1")?.lastSuccessAt).toBe(successAt);
+    expect(getGuildConfig("g1")?.lastRunAt).toBeTypeOf("number");
+  });
+
+  it("does not mark a match as seen when its detail request fails", async () => {
+    addSinglePlayer();
+    const details = { 1001: matchDetail(1001, 1000) };
+    let failDetail = true;
+    const opendota = {
+      consumeRateLimitHits: () => 0,
+      getHeroes: async () => [],
+      getPlayerMatches: async () => [playerMatch(1001, 1000)],
+      getMatch: async (matchId: number) => {
+        if (failDetail) {
+          throw new Error("OpenDota request failed: 522");
+        }
+        return details[matchId] ?? null;
+      },
+    } as unknown as OpenDotaClient;
+
+    const first = await pollGuild("g1", {
+      client: fakeClient({ sent: [] }),
+      opendota,
+      heroes: createHeroes(),
+    });
+    expect(first.errors).toHaveLength(1);
+    expect(first.posted).toBe(0);
+
+    failDetail = false;
+    const state: FakeChannelState = { sent: [] };
+    const second = await pollGuild(
+      "g1",
+      { client: fakeClient(state), opendota, heroes: createHeroes() },
+      { force: true },
+    );
+    expect(second.posted).toBe(1);
+  });
+
+  it("requests more matches when the search window is larger", async () => {
+    addSinglePlayer();
+    const limits: number[] = [];
+    const opendota = fakeOpenDota([], {}, [], 0, limits);
+
+    await pollGuild(
+      "g1",
+      { client: fakeClient({ sent: [] }), opendota, heroes: createHeroes() },
+      { sinceMs: Date.now() - 5 * 3_600_000 },
+    );
+
+    expect(limits[0]).toBeGreaterThan(20);
   });
 
   it("throws when no channel is configured", async () => {

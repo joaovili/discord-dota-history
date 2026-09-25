@@ -4,6 +4,7 @@ export interface GuildConfig {
   intervalMinutes: number;
   enabled: boolean;
   lastRunAt: number | null;
+  lastSuccessAt: number | null;
   lastErrorAt: number | null;
 }
 
@@ -23,6 +24,7 @@ export interface GuildConfigRow {
   interval_minutes: number;
   enabled: number;
   last_run_at: number | null;
+  last_success_at: number | null;
   last_error_at: number | null;
 }
 
@@ -42,6 +44,7 @@ export const mapGuildConfig = (row: GuildConfigRow): GuildConfig => ({
   intervalMinutes: row.interval_minutes,
   enabled: row.enabled === 1,
   lastRunAt: row.last_run_at,
+  lastSuccessAt: row.last_success_at,
   lastErrorAt: row.last_error_at,
 });
 

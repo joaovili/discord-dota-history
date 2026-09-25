@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS guild_config (
   interval_minutes INTEGER NOT NULL DEFAULT 30,
   enabled          INTEGER NOT NULL DEFAULT 0,
   last_run_at      INTEGER,
+  last_success_at  INTEGER,
   last_error_at    INTEGER,
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL
@@ -36,6 +37,13 @@ CREATE TABLE IF NOT EXISTS seen_matches (
 
 let instance: Database.Database | null = null;
 
+function migrate(db: Database.Database): void {
+  const columns = db.prepare("PRAGMA table_info(guild_config)").all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "last_success_at")) {
+    db.exec("ALTER TABLE guild_config ADD COLUMN last_success_at INTEGER");
+  }
+}
+
 export function createDb(path: string): Database.Database {
   if (path !== ":memory:") {
     mkdirSync(dirname(path), { recursive: true });
@@ -44,6 +52,7 @@ export function createDb(path: string): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+  migrate(db);
   if (path !== ":memory:") {
     db.pragma("busy_timeout = 5000");
   }

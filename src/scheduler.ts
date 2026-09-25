@@ -6,6 +6,7 @@ import {
   recordGuildError,
 } from "./db/guilds.js";
 import { type PollDeps, pollGuild } from "./jobs/pollMatches.js";
+import { describeOpenDotaFailure } from "./util/format.js";
 
 const DEFAULT_TICK_MS = 60_000;
 const ERROR_COOLDOWN_MS = 60 * 60 * 1000;
@@ -55,13 +56,8 @@ export function startScheduler(deps: PollDeps, options: SchedulerOptions = {}): 
         try {
           const result = await pollGuild(guild.guildId, deps);
           if (result.errors.length > 0) {
-            await notifyGuild(
-              deps.client,
-              guild.guildId,
-              `⚠️ Não consegui buscar algumas partidas:\n${result.errors
-                .map((message) => `• ${message}`)
-                .join("\n")}`,
-            );
+            console.warn(`[scheduler] guild ${guild.guildId} erros:`, result.errors);
+            await notifyGuild(deps.client, guild.guildId, describeOpenDotaFailure(result.errors));
           } else if (result.rateLimitHits > 0) {
             await notifyGuild(
               deps.client,

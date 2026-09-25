@@ -4,6 +4,7 @@ import {
   ChannelUnreachableError,
   pollGuild,
 } from "../jobs/pollMatches.js";
+import { describeOpenDotaFailure } from "../util/format.js";
 import type { Command, CommandContext } from "./types.js";
 
 export const partidasCommand: Command = {
@@ -66,7 +67,7 @@ export const partidasCommand: Command = {
         );
       }
       if (result.errors.length > 0) {
-        lines.push(`Avisos:\n${result.errors.map((e) => `• ${e}`).join("\n")}`);
+        lines.push(describeOpenDotaFailure(result.errors));
       }
       await interaction.editReply({ content: lines.join("\n") });
     } catch (error) {

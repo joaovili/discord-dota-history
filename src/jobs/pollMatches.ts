@@ -1,5 +1,5 @@
 import type { Client } from "discord.js";
-import { getGuildConfig, setGuildLastRun } from "../db/guilds.js";
+import { getGuildConfig, setGuildLastRun, setGuildLastSuccess } from "../db/guilds.js";
 import { getSeenMatchIds, markMatchesSeen } from "../db/matches.js";
 import { listPlayers } from "../db/players.js";
 import type { TrackedPlayer } from "../db/types.js";
@@ -47,11 +47,26 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const BASE_MATCH_LIMIT = 20;
+const MAX_MATCH_LIMIT = 100;
+
+function matchLimitForFloor(floor: number, now: number): number {
+  if (floor <= 0) {
+    return BASE_MATCH_LIMIT;
+  }
+  const hoursBehind = (now - floor) / 3_600_000;
+  if (hoursBehind <= 1) {
+    return BASE_MATCH_LIMIT;
+  }
+  return Math.min(MAX_MATCH_LIMIT, Math.ceil(hoursBehind * 10));
+}
+
 export async function pollGuild(
   guildId: string,
   deps: PollDeps,
   options: PollOptions = {},
 ): Promise<PollResult> {
+  const runStartedAt = Date.now();
   const result: PollResult = {
     guildId,
     candidates: 0,
@@ -83,12 +98,16 @@ export async function pollGuild(
     tracked.set(player.accountId, player);
   }
 
+  const lastSuccessAt = config.lastSuccessAt ?? config.lastRunAt;
   const candidates = new Map<number, number>();
   for (const player of players) {
+    const floor =
+      options.sinceMs ?? (options.force ? 0 : Math.max(lastSuccessAt ?? 0, player.addedAt));
     try {
-      const matches = await deps.opendota.getPlayerMatches(player.accountId);
-      const floor =
-        options.sinceMs ?? (options.force ? 0 : Math.max(config.lastRunAt ?? 0, player.addedAt));
+      const matches = await deps.opendota.getPlayerMatches(
+        player.accountId,
+        matchLimitForFloor(floor, runStartedAt),
+      );
       for (const match of matches) {
         if (match.start_time * 1000 >= floor) {
           candidates.set(match.match_id, match.start_time);
@@ -112,24 +131,30 @@ export async function pollGuild(
     matchIds = matchIds.slice(-options.limit);
   }
 
+  const seenIds: number[] = [];
   for (const matchId of matchIds) {
     try {
       const detail = await deps.opendota.getMatch(matchId);
       if (!detail || !Array.isArray(detail.players) || detail.players.length === 0) {
         result.skipped += 1;
+        seenIds.push(matchId);
         continue;
       }
       const embed = buildMatchEmbed({ match: detail, heroes: deps.heroes, tracked });
       await channel.send({ embeds: [embed] });
       result.posted += 1;
+      seenIds.push(matchId);
     } catch (error) {
       result.errors.push(`Partida ${matchId}: ${errorMessage(error)}`);
     }
   }
 
   result.rateLimitHits = deps.opendota.consumeRateLimitHits?.() ?? 0;
-  markMatchesSeen(guildId, matchIds);
+  markMatchesSeen(guildId, seenIds);
   setGuildLastRun(guildId, Date.now());
+  if (result.errors.length === 0) {
+    setGuildLastSuccess(guildId, runStartedAt);
+  }
 
   return result;
 }
